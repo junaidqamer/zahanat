@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:spring="http://www.springframework.org/schema/beans"
+      xmlns:os="http://www.mulesoft.org/schema/mule/azure-storage"
+      xmlns:snowflake="http://www.mulesoft.org/schema/mule/snowflake"
+      xmlns:scheduler="http://www.mulesoft.org/schema/mule/scheduler"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/azure-storage http://www.mulesoft.org/schema/mule/azure-storage/current/mule-azure-storage.xsd
+      http://www.mulesoft.org/schema/mule/scheduler http://www.mulesoft.org/schema/mule/scheduler/current/mule-scheduler.xsd
+      http://www.mulesoft.org/schema/mule/snowflake http://www.mulesoft.org/schema/mule/snowflake/current/mule-snowflake.xsd">
+
+    <configuration-properties file="mule-dev.properties"/>
+
+    <!-- Azure Storage Global Config -->
+    <os:config name="Azure_Storage_Config" doc:name="Azure Storage Config">
+        <os:connection accountName="${azure.accountName}"
+                       accountKey="${azure.accountKey}"/>
+    </os:config>
+
+    <!-- Snowflake Global Config -->
+    <snowflake:config name="Snowflake_Config" doc:name="Snowflake Config">
+        <snowflake:basic-connection account="${snowflake.account}"
+                                    user="${snowflake.user}"
+                                    password="${snowflake.password}"
+                                    warehouse="${snowflake.warehouse}"
+                                    database="${snowflake.database}"
+                                    schema="${snowflake.schema}"
+                                    role="${snowflake.role}"/>
+    </snowflake:config>
+
+    <!-- Scheduler to kick off ingestion periodically -->
+    <flow name="ingest-from-azure-to-snowflake">
+        <scheduler:scheduler doc:name="Ingestion Scheduler">
+            <scheduler:fixed-frequency frequency="${ingest.frequency.seconds}" timeUnit="SECONDS"/>
+        </scheduler:scheduler>
+
+        <!-- List blobs in container with optional prefix -->
+        <os:list-blobs doc:name="List Blobs"
+                       config-ref="Azure_Storage_Config"
+                       containerName="${azure.containerName}"
+                       prefix="${azure.prefix}">
+        </os:list-blobs>
+
+        <!-- For each blob, download content -->
+        <foreach doc:name="For Each Blob" collection="#[(payload default [])]">
+            <set-variable variableName="blobName" value="#[(payload.name) as String]"/>
+
+            <os:get-blob-content doc:name="Get Blob Content"
+                                 config-ref="Azure_Storage_Config"
+                                 containerName="${azure.containerName}"
+                                 blobName="#[vars.blobName]"/>
+
+            <!-- Decide parser based on extension -->
+            <choice doc:name="Parse Content">
+                <when expression="#[(vars.blobName default '') endsWith '.csv']">
+                    <ee:transform doc:name="Parse CSV" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+import * from dw::util::Values
+var csvText = write(payload, 'application/text')
+---
+read(csvText, 'application/csv')
+]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </when>
+                <when expression="#[(vars.blobName default '') endsWith '.json']">
+                    <ee:transform doc:name="Ensure JSON Array" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+(
+  (payload is Array) ? payload : [payload]
+)
+]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </when>
+                <otherwise>
+                    <logger level="WARN" message="Skipping unsupported blob: #[vars.blobName]"/>
+                    <continue-processing/>
+                </otherwise>
+            </choice>
+
+            <!-- Upsert into Snowflake using PUT/COPY pattern with stage + table -->
+            <!-- For simplicity, do row-by-row insert using bulk array binding -->
+            <snowflake:insert doc:name="Insert Rows"
+                              config-ref="Snowflake_Config"
+                              tableName="${snowflake.table}"
+                              inputParameters="#[payload]"/>
+
+            <!-- Optional: move processed blob -->
+            <choice>
+                <when expression="#[attributes.status default 200]">
+                    <logger level="INFO" message="Processed blob #[vars.blobName]"/>
+                </when>
+            </choice>
+        </foreach>
+    </flow>
+
+</mule>
