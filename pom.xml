@@ -1,0 +1,92 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example.mule</groupId>
+  <artifactId>azure-blob-to-snowflake</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>mule-application</packaging>
+
+  <name>azure-blob-to-snowflake</name>
+  <description>Mule 4 app to ingest data from Azure Blob Storage into Snowflake</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <mule.runtime.version>4.6.6</mule.runtime.version>
+    <mule.maven.plugin.version>3.9.0</mule.maven.plugin.version>
+    <mule.plugin.classifier>mule-plugin</mule.plugin.classifier>
+
+    <!-- Connector versions: adjust as needed to match your org's supported versions -->
+    <azure.storage.connector.version>1.9.0</azure.storage.connector.version>
+    <snowflake.connector.version>1.6.0</snowflake.connector.version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>mulesoft-public</id>
+      <name>MuleSoft Public</name>
+      <url>https://repository.mulesoft.org/nexus/content/repositories/public/</url>
+    </repository>
+    <repository>
+      <id>mulesoft-releases</id>
+      <name>MuleSoft Releases</name>
+      <url>https://repository.mulesoft.org/nexus/content/repositories/releases/</url>
+    </repository>
+  </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <id>mulesoft-public</id>
+      <name>MuleSoft Public</name>
+      <url>https://repository.mulesoft.org/nexus/content/repositories/public/</url>
+    </pluginRepository>
+    <pluginRepository>
+      <id>mulesoft-releases</id>
+      <name>MuleSoft Releases</name>
+      <url>https://repository.mulesoft.org/nexus/content/repositories/releases/</url>
+    </pluginRepository>
+  </pluginRepositories>
+
+  <dependencies>
+    <!-- Mule runtime provided APIs -->
+    <dependency>
+      <groupId>org.mule.runtime</groupId>
+      <artifactId>mule-core</artifactId>
+      <version>${mule.runtime.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Azure Storage Connector (Mule 4) -->
+    <dependency>
+      <groupId>com.mulesoft.connectors</groupId>
+      <artifactId>mule-azure-storage-connector</artifactId>
+      <version>${azure.storage.connector.version}</version>
+      <classifier>${mule.plugin.classifier}</classifier>
+    </dependency>
+
+    <!-- Snowflake Connector (Mule 4) -->
+    <dependency>
+      <groupId>com.mulesoft.connectors</groupId>
+      <artifactId>mule-snowflake-connector</artifactId>
+      <version>${snowflake.connector.version}</version>
+      <classifier>${mule.plugin.classifier}</classifier>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.mule.tools.maven</groupId>
+        <artifactId>mule-maven-plugin</artifactId>
+        <version>${mule.maven.plugin.version}</version>
+        <extensions>true</extensions>
+        <configuration>
+          <classifier>mule-application</classifier>
+          <skipDeployment>true</skipDeployment>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>
