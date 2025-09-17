@@ -1,0 +1,15 @@
+{
+  "minMuleVersion": "4.6.0",
+  "secureProperties": [
+    "azure.account.key",
+    "snowflake.password"
+  ],
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedResources": [
+        "mule-app.properties"
+      ]
+    }
+  }
+}
