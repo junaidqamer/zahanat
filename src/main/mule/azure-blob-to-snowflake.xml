@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:azure-storage="http://www.mulesoft.org/schema/mule/azure-storage"
+      xmlns:scheduler="http://www.mulesoft.org/schema/mule/scheduler"
+      xmlns:snowflake="http://www.mulesoft.org/schema/mule/snowflake"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+                          http://www.mulesoft.org/schema/mule/azure-storage http://www.mulesoft.org/schema/mule/azure-storage/current/mule-azure-storage.xsd
+                          http://www.mulesoft.org/schema/mule/scheduler http://www.mulesoft.org/schema/mule/scheduler/current/mule-scheduler.xsd
+                          http://www.mulesoft.org/schema/mule/snowflake http://www.mulesoft.org/schema/mule/snowflake/current/mule-snowflake.xsd">
+
+  <configuration-properties file="mule-app.properties"/>
+
+  <!-- Azure Blob Storage config -->
+  <azure-storage:config name="Azure_Storage_Config" doc:name="Azure Storage Config"
+                        accountName="${azure.account.name}"
+                        accountKey="${azure.account.key}"
+                        defaultContainer="${azure.container.name}"/>
+
+  <!-- Snowflake config -->
+  <snowflake:config name="Snowflake_Config" doc:name="Snowflake Config">
+    <snowflake:basic-connection account="${snowflake.account}"
+                                username="${snowflake.username}"
+                                password="${snowflake.password}"
+                                warehouse="${snowflake.warehouse}"
+                                database="${snowflake.database}"
+                                schema="${snowflake.schema}"
+                                role="${snowflake.role}"/>
+  </snowflake:config>
+
+  <!-- Scheduler-based polling flow -->
+  <flow name="poll-azure-blobs-and-copy-to-snowflake" doc:id="poll-azure-blobs-and-copy-to-snowflake">
+    <scheduler:fixed-frequency freq="${scheduler.frequency.ms}" timeUnit="MILLISECONDS"/>
+
+    <!-- List blobs in the source container/prefix -->
+    <azure-storage:list-blobs config-ref="Azure_Storage_Config"
+                              containerName="${azure.container.name}"
+                              directoryPath="${azure.prefix}"
+                              doc:name="List Blobs"/>
+
+    <foreach doc:name="For Each Blob">
+      <!-- Expecting each item to have a 'name' field -->
+      <set-variable variableName="blobName" value="#[payload.name]" doc:name="Set blobName"/>
+
+      <!-- Execute COPY INTO for just this file using external stage pointing to the container -->
+      <snowflake:execute config-ref="Snowflake_Config" doc:name="COPY INTO">
+        <snowflake:sql><![CDATA[
+COPY INTO ${snowflake.database}.${snowflake.schema}.${snowflake.table}
+FROM @${snowflake.stage}
+FILES = ('#[vars.blobName]')
+FILE_FORMAT = (FORMAT_NAME = ${snowflake.file_format})
+ON_ERROR = ${snowflake.copy_on_error}
+        ]]></snowflake:sql>
+      </snowflake:execute>
+
+      <!-- Archive then delete original -->
+      <azure-storage:copy-blob config-ref="Azure_Storage_Config" doc:name="Archive Blob"
+                               sourceContainerName="${azure.container.name}"
+                               sourceBlobName="#[vars.blobName]"
+                               destinationContainerName="${azure.archive.container}"
+                               destinationBlobName="${azure.archive.prefix}#[vars.blobName]"/>
+
+      <azure-storage:delete-blob config-ref="Azure_Storage_Config" doc:name="Delete Original"
+                                 containerName="${azure.container.name}"
+                                 blobName="#[vars.blobName]"/>
+    </foreach>
+  </flow>
+
+</mule>
+
